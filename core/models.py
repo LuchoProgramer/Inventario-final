@@ -2,6 +2,7 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.core.exceptions import ObjectDoesNotExist
+from django.contrib.auth.models import User
 
 # Modelo para los Proveedores
 class Proveedor(models.Model):
@@ -38,15 +39,33 @@ class Sucursal(models.Model):
     def __str__(self):
         return self.nombre
 
+# Modelo para Empleados
+class Empleado(models.Model):
+    usuario = models.OneToOneField(User, on_delete=models.CASCADE)
+    nombre = models.CharField(max_length=100)
+    sucursal = models.ForeignKey(Sucursal, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return self.nombre
+
 # Modelo para las Compras
+from django.db import transaction
+
 class Compra(models.Model):
     proveedor = models.ForeignKey(Proveedor, on_delete=models.CASCADE)
     fecha_compra = models.DateTimeField(auto_now_add=True)
-    total_compra = models.DecimalField(max_digits=10, decimal_places=2)
+    total_compra = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
-        self.total_compra = sum(detalle.subtotal for detalle in self.detalles.all())
+        # Guarda la instancia de Compra para asegurarte de que tiene un ID
         super(Compra, self).save(*args, **kwargs)
+
+        # Luego de guardar la compra, puedes trabajar con los detalles
+        self.total_compra = sum(detalle.subtotal for detalle in self.detalles.all())
+        super(Compra, self).save(update_fields=['total_compra'])
+
+    def __str__(self):
+        return f"Compra {self.id} - {self.proveedor.nombre}"
 
 # Modelo para los Detalles de las Compras
 class DetalleCompra(models.Model):
@@ -73,8 +92,6 @@ class DetalleCompra(models.Model):
     def __str__(self):
         return f"{self.producto.nombre} - {self.cantidad} unidades"
 
-
-
 # Modelo para los Inventarios
 class Inventario(models.Model):
     producto = models.ForeignKey(Producto, on_delete=models.CASCADE)
@@ -99,7 +116,6 @@ class Inventario(models.Model):
             self.save()
         else:
             raise ValueError("No hay suficiente inventario para decrementar.")
-
 
 # Modelo para las Transferencias
 class Transferencia(models.Model):
@@ -127,24 +143,19 @@ class Transferencia(models.Model):
     def __str__(self):
         return f"Transferencia de {self.sucursal_origen.nombre} a {self.sucursal_destino.nombre}"
 
-
 # Modelo para las Ventas
 class Venta(models.Model):
     sucursal = models.ForeignKey(Sucursal, on_delete=models.CASCADE)
+    empleado = models.ForeignKey(Empleado, on_delete=models.CASCADE)  # Relación con Empleado
     fecha_venta = models.DateTimeField(auto_now_add=True)
     total_venta = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
-        # Calcula el total de la venta sumando los subtotales de los detalles
-        nuevo_total = sum(detalle.subtotal for detalle in self.detalles.all())
-        
-        # Solo guarda si el total ha cambiado, para evitar recursión infinita
-        if self.total_venta != nuevo_total:
-            self.total_venta = nuevo_total
-        
+        self.total_venta = sum(detalle.subtotal for detalle in self.detalles.all())
         super(Venta, self).save(*args, **kwargs)
 
-
+    def __str__(self):
+        return f"Venta {self.id} - {self.sucursal.nombre} - {self.empleado.nombre}"
 
 # Modelo para los Detalles de las Ventas
 class DetalleVenta(models.Model):
@@ -168,5 +179,3 @@ class DetalleVenta(models.Model):
 
     def __str__(self):
         return f"{self.producto.nombre} - {self.cantidad} unidades"
-
-
